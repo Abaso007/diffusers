@@ -385,7 +385,7 @@ def parse_args(input_args=None):
         args = parser.parse_args()
 
     env_local_rank = int(os.environ.get("LOCAL_RANK", -1))
-    if env_local_rank != -1 and env_local_rank != args.local_rank:
+    if env_local_rank not in [-1, args.local_rank]:
         args.local_rank = env_local_rank
 
     if args.with_prior_preservation:
@@ -459,11 +459,10 @@ class DreamBoothDataset(Dataset):
         return self._length
 
     def __getitem__(self, index):
-        example = {}
         instance_image = Image.open(self.instance_images_path[index % self.num_instance_images])
-        if not instance_image.mode == "RGB":
+        if instance_image.mode != "RGB":
             instance_image = instance_image.convert("RGB")
-        example["instance_images"] = self.image_transforms(instance_image)
+        example = {"instance_images": self.image_transforms(instance_image)}
         example["instance_prompt_ids"] = self.tokenizer(
             self.instance_prompt,
             truncation=True,
@@ -474,7 +473,7 @@ class DreamBoothDataset(Dataset):
 
         if self.class_data_root:
             class_image = Image.open(self.class_images_path[index % self.num_class_images])
-            if not class_image.mode == "RGB":
+            if class_image.mode != "RGB":
                 class_image = class_image.convert("RGB")
             example["class_images"] = self.image_transforms(class_image)
             example["class_prompt_ids"] = self.tokenizer(
@@ -503,11 +502,10 @@ def collate_fn(examples, with_prior_preservation=False):
 
     input_ids = torch.cat(input_ids, dim=0)
 
-    batch = {
+    return {
         "input_ids": input_ids,
         "pixel_values": pixel_values,
     }
-    return batch
 
 
 class PromptDataset(Dataset):
@@ -521,10 +519,7 @@ class PromptDataset(Dataset):
         return self.num_samples
 
     def __getitem__(self, index):
-        example = {}
-        example["prompt"] = self.prompt
-        example["index"] = index
-        return example
+        return {"prompt": self.prompt, "index": index}
 
 
 def main(args):
