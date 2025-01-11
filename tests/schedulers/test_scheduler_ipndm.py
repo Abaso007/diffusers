@@ -1,4 +1,5 @@
 import tempfile
+import unittest
 
 import torch
 
@@ -50,6 +51,7 @@ class IPNDMSchedulerTest(SchedulerCommonTest):
 
             assert torch.sum(torch.abs(output - new_output)) < 1e-5, "Scheduler outputs are not identical"
 
+    @unittest.skip("Test not supported.")
     def test_from_save_pretrained(self):
         pass
 
@@ -103,6 +105,8 @@ class IPNDMSchedulerTest(SchedulerCommonTest):
         for i, t in enumerate(scheduler.timesteps):
             residual = model(sample, t)
             sample = scheduler.step(residual, t, sample).prev_sample
+
+        scheduler._step_index = None
 
         for i, t in enumerate(scheduler.timesteps):
             residual = model(sample, t)

@@ -1,4 +1,4 @@
-# Copyright 2023 The HuggingFace Team. All rights reserved.
+# Copyright 2024 The HuggingFace Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,7 +35,7 @@ from ...schedulers import (
 )
 from ...utils import deprecate, logging, replace_example_docstring
 from ..pipeline_flax_utils import FlaxDiffusionPipeline
-from . import FlaxStableDiffusionPipelineOutput
+from .pipeline_output import FlaxStableDiffusionPipelineOutput
 from .safety_checker_flax import FlaxStableDiffusionSafetyChecker
 
 
@@ -55,7 +55,7 @@ EXAMPLE_DOC_STRING = """
         >>> from diffusers import FlaxStableDiffusionPipeline
 
         >>> pipeline, params = FlaxStableDiffusionPipeline.from_pretrained(
-        ...     "runwayml/stable-diffusion-v1-5", revision="bf16", dtype=jax.numpy.bfloat16
+        ...     "stable-diffusion-v1-5/stable-diffusion-v1-5", variant="bf16", dtype=jax.numpy.bfloat16
         ... )
 
         >>> prompt = "a photo of an astronaut riding a horse on mars"
@@ -80,31 +80,30 @@ EXAMPLE_DOC_STRING = """
 
 class FlaxStableDiffusionPipeline(FlaxDiffusionPipeline):
     r"""
-    Pipeline for text-to-image generation using Stable Diffusion.
+    Flax-based pipeline for text-to-image generation using Stable Diffusion.
 
-    This model inherits from [`FlaxDiffusionPipeline`]. Check the superclass documentation for the generic methods the
-    library implements for all the pipelines (such as downloading or saving, running on a particular device, etc.)
+    This model inherits from [`FlaxDiffusionPipeline`]. Check the superclass documentation for the generic methods
+    implemented for all pipelines (downloading, saving, running on a particular device, etc.).
 
     Args:
         vae ([`FlaxAutoencoderKL`]):
-            Variational Auto-Encoder (VAE) Model to encode and decode images to and from latent representations.
-        text_encoder ([`FlaxCLIPTextModel`]):
-            Frozen text-encoder. Stable Diffusion uses the text portion of
-            [CLIP](https://huggingface.co/docs/transformers/model_doc/clip#transformers.FlaxCLIPTextModel),
-            specifically the [clip-vit-large-patch14](https://huggingface.co/openai/clip-vit-large-patch14) variant.
-        tokenizer (`CLIPTokenizer`):
-            Tokenizer of class
-            [CLIPTokenizer](https://huggingface.co/docs/transformers/v4.21.0/en/model_doc/clip#transformers.CLIPTokenizer).
-        unet ([`FlaxUNet2DConditionModel`]): Conditional U-Net architecture to denoise the encoded image latents.
+            Variational Auto-Encoder (VAE) model to encode and decode images to and from latent representations.
+        text_encoder ([`~transformers.FlaxCLIPTextModel`]):
+            Frozen text-encoder ([clip-vit-large-patch14](https://huggingface.co/openai/clip-vit-large-patch14)).
+        tokenizer ([`~transformers.CLIPTokenizer`]):
+            A `CLIPTokenizer` to tokenize text.
+        unet ([`FlaxUNet2DConditionModel`]):
+            A `FlaxUNet2DConditionModel` to denoise the encoded image latents.
         scheduler ([`SchedulerMixin`]):
             A scheduler to be used in combination with `unet` to denoise the encoded image latents. Can be one of
             [`FlaxDDIMScheduler`], [`FlaxLMSDiscreteScheduler`], [`FlaxPNDMScheduler`], or
             [`FlaxDPMSolverMultistepScheduler`].
         safety_checker ([`FlaxStableDiffusionSafetyChecker`]):
             Classification module that estimates whether generated images could be considered offensive or harmful.
-            Please, refer to the [model card](https://huggingface.co/runwayml/stable-diffusion-v1-5) for details.
-        feature_extractor ([`CLIPImageProcessor`]):
-            Model that extracts features from generated images to be used as inputs for the `safety_checker`.
+            Please refer to the [model card](https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5) for
+            more details about a model's potential harms.
+        feature_extractor ([`~transformers.CLIPImageProcessor`]):
+            A `CLIPImageProcessor` to extract features from generated images; used as inputs to the `safety_checker`.
     """
 
     def __init__(
@@ -133,17 +132,21 @@ class FlaxStableDiffusionPipeline(FlaxDiffusionPipeline):
                 " information, please have a look at https://github.com/huggingface/diffusers/pull/254 ."
             )
 
-        is_unet_version_less_0_9_0 = hasattr(unet.config, "_diffusers_version") and version.parse(
-            version.parse(unet.config._diffusers_version).base_version
-        ) < version.parse("0.9.0.dev0")
-        is_unet_sample_size_less_64 = hasattr(unet.config, "sample_size") and unet.config.sample_size < 64
+        is_unet_version_less_0_9_0 = (
+            unet is not None
+            and hasattr(unet.config, "_diffusers_version")
+            and version.parse(version.parse(unet.config._diffusers_version).base_version) < version.parse("0.9.0.dev0")
+        )
+        is_unet_sample_size_less_64 = (
+            unet is not None and hasattr(unet.config, "sample_size") and unet.config.sample_size < 64
+        )
         if is_unet_version_less_0_9_0 and is_unet_sample_size_less_64:
             deprecation_message = (
                 "The configuration file of the unet has set the default `sample_size` to smaller than"
                 " 64 which seems highly unlikely .If you're checkpoint is a fine-tuned version of any of the"
                 " following: \n- CompVis/stable-diffusion-v1-4 \n- CompVis/stable-diffusion-v1-3 \n-"
-                " CompVis/stable-diffusion-v1-2 \n- CompVis/stable-diffusion-v1-1 \n- runwayml/stable-diffusion-v1-5"
-                " \n- runwayml/stable-diffusion-inpainting \n you should change 'sample_size' to 64 in the"
+                " CompVis/stable-diffusion-v1-2 \n- CompVis/stable-diffusion-v1-1 \n- stable-diffusion-v1-5/stable-diffusion-v1-5"
+                " \n- stable-diffusion-v1-5/stable-diffusion-inpainting \n you should change 'sample_size' to 64 in the"
                 " configuration file. Please make sure to update the config accordingly as leaving `sample_size=32`"
                 " in the config might lead to incorrect results in future versions. If you have downloaded this"
                 " checkpoint from the Hugging Face Hub, it would be very nice if you could open a Pull request for"
@@ -163,7 +166,7 @@ class FlaxStableDiffusionPipeline(FlaxDiffusionPipeline):
             safety_checker=safety_checker,
             feature_extractor=feature_extractor,
         )
-        self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
+        self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1) if getattr(self, "vae", None) else 8
 
     def prepare_inputs(self, prompt: Union[str, List[str]]):
         if not isinstance(prompt, (str, list)):
@@ -216,13 +219,13 @@ class FlaxStableDiffusionPipeline(FlaxDiffusionPipeline):
         self,
         prompt_ids: jnp.array,
         params: Union[Dict, FrozenDict],
-        prng_seed: jax.random.KeyArray,
+        prng_seed: jax.Array,
         num_inference_steps: int,
         height: int,
         width: int,
         guidance_scale: float,
-        latents: Optional[jnp.array] = None,
-        neg_prompt_ids: Optional[jnp.array] = None,
+        latents: Optional[jnp.ndarray] = None,
+        neg_prompt_ids: Optional[jnp.ndarray] = None,
     ):
         if height % 8 != 0 or width % 8 != 0:
             raise ValueError(f"`height` and `width` have to be divisible by 8 but are {height} and {width}.")
@@ -313,42 +316,46 @@ class FlaxStableDiffusionPipeline(FlaxDiffusionPipeline):
         self,
         prompt_ids: jnp.array,
         params: Union[Dict, FrozenDict],
-        prng_seed: jax.random.KeyArray,
+        prng_seed: jax.Array,
         num_inference_steps: int = 50,
         height: Optional[int] = None,
         width: Optional[int] = None,
-        guidance_scale: Union[float, jnp.array] = 7.5,
-        latents: jnp.array = None,
-        neg_prompt_ids: jnp.array = None,
+        guidance_scale: Union[float, jnp.ndarray] = 7.5,
+        latents: jnp.ndarray = None,
+        neg_prompt_ids: jnp.ndarray = None,
         return_dict: bool = True,
         jit: bool = False,
     ):
         r"""
-        Function invoked when calling the pipeline for generation.
+        The call function to the pipeline for generation.
 
         Args:
-            prompt (`str` or `List[str]`):
-                The prompt or prompts to guide the image generation.
-            height (`int`, *optional*, defaults to self.unet.config.sample_size * self.vae_scale_factor):
+            prompt (`str` or `List[str]`, *optional*):
+                The prompt or prompts to guide image generation.
+            height (`int`, *optional*, defaults to `self.unet.config.sample_size * self.vae_scale_factor`):
                 The height in pixels of the generated image.
-            width (`int`, *optional*, defaults to self.unet.config.sample_size * self.vae_scale_factor):
+            width (`int`, *optional*, defaults to `self.unet.config.sample_size * self.vae_scale_factor`):
                 The width in pixels of the generated image.
             num_inference_steps (`int`, *optional*, defaults to 50):
                 The number of denoising steps. More denoising steps usually lead to a higher quality image at the
                 expense of slower inference.
             guidance_scale (`float`, *optional*, defaults to 7.5):
-                Guidance scale as defined in [Classifier-Free Diffusion Guidance](https://arxiv.org/abs/2207.12598).
-                `guidance_scale` is defined as `w` of equation 2. of [Imagen
-                Paper](https://arxiv.org/pdf/2205.11487.pdf). Guidance scale is enabled by setting `guidance_scale >
-                1`. Higher guidance scale encourages to generate images that are closely linked to the text `prompt`,
-                usually at the expense of lower image quality.
-            latents (`jnp.array`, *optional*):
-                Pre-generated noisy latents, sampled from a Gaussian distribution, to be used as inputs for image
-                generation. Can be used to tweak the same generation with different prompts. tensor will ge generated
-                by sampling using the supplied random `generator`.
+                A higher guidance scale value encourages the model to generate images closely linked to the text
+                `prompt` at the expense of lower image quality. Guidance scale is enabled when `guidance_scale > 1`.
+            latents (`jnp.ndarray`, *optional*):
+                Pre-generated noisy latents sampled from a Gaussian distribution, to be used as inputs for image
+                generation. Can be used to tweak the same generation with different prompts. If not provided, a latents
+                array is generated by sampling using the supplied random `generator`.
             jit (`bool`, defaults to `False`):
-                Whether to run `pmap` versions of the generation and safety scoring functions. NOTE: This argument
-                exists because `__call__` is not yet end-to-end pmap-able. It will be removed in a future release.
+                Whether to run `pmap` versions of the generation and safety scoring functions.
+
+                    <Tip warning={true}>
+
+                    This argument exists because `__call__` is not yet end-to-end pmap-able. It will be removed in a
+                    future release.
+
+                    </Tip>
+
             return_dict (`bool`, *optional*, defaults to `True`):
                 Whether or not to return a [`~pipelines.stable_diffusion.FlaxStableDiffusionPipelineOutput`] instead of
                 a plain tuple.
@@ -357,10 +364,10 @@ class FlaxStableDiffusionPipeline(FlaxDiffusionPipeline):
 
         Returns:
             [`~pipelines.stable_diffusion.FlaxStableDiffusionPipelineOutput`] or `tuple`:
-            [`~pipelines.stable_diffusion.FlaxStableDiffusionPipelineOutput`] if `return_dict` is True, otherwise a
-            `tuple. When returning a tuple, the first element is a list with the generated images, and the second
-            element is a list of `bool`s denoting whether the corresponding generated image likely represents
-            "not-safe-for-work" (nsfw) content, according to the `safety_checker`.
+                If `return_dict` is `True`, [`~pipelines.stable_diffusion.FlaxStableDiffusionPipelineOutput`] is
+                returned, otherwise a `tuple` is returned where the first element is a list with the generated images
+                and the second element is a list of `bool`s indicating whether the corresponding generated image
+                contains "not-safe-for-work" (nsfw) content.
         """
         # 0. Default height and width to unet
         height = height or self.unet.config.sample_size * self.vae_scale_factor
@@ -407,13 +414,13 @@ class FlaxStableDiffusionPipeline(FlaxDiffusionPipeline):
 
             images_uint8_casted = np.asarray(images_uint8_casted).reshape(num_devices * batch_size, height, width, 3)
             images_uint8_casted, has_nsfw_concept = self._run_safety_checker(images_uint8_casted, safety_params, jit)
-            images = np.asarray(images)
+            images = np.asarray(images).copy()
 
             # block images
             if any(has_nsfw_concept):
                 for i, is_nsfw in enumerate(has_nsfw_concept):
                     if is_nsfw:
-                        images[i] = np.asarray(images_uint8_casted[i])
+                        images[i, 0] = np.asarray(images_uint8_casted[i])
 
             images = images.reshape(num_devices, batch_size, height, width, 3)
         else:
