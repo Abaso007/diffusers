@@ -13,21 +13,28 @@ from diffusers import (
     UNet2DConditionModel,
 )
 from diffusers.pipelines.stable_diffusion.stable_unclip_image_normalizer import StableUnCLIPImageNormalizer
-from diffusers.utils.testing_utils import load_numpy, require_torch_gpu, slow, torch_device
+from diffusers.utils.testing_utils import enable_full_determinism, load_numpy, nightly, require_torch_gpu, torch_device
 
 from ..pipeline_params import TEXT_TO_IMAGE_BATCH_PARAMS, TEXT_TO_IMAGE_IMAGE_PARAMS, TEXT_TO_IMAGE_PARAMS
-from ..test_pipelines_common import PipelineLatentTesterMixin, PipelineTesterMixin, assert_mean_pixel_difference
+from ..test_pipelines_common import (
+    PipelineKarrasSchedulerTesterMixin,
+    PipelineLatentTesterMixin,
+    PipelineTesterMixin,
+    assert_mean_pixel_difference,
+)
 
 
-torch.backends.cuda.matmul.allow_tf32 = False
-torch.use_deterministic_algorithms(True)
+enable_full_determinism()
 
 
-class StableUnCLIPPipelineFastTests(PipelineLatentTesterMixin, PipelineTesterMixin, unittest.TestCase):
+class StableUnCLIPPipelineFastTests(
+    PipelineLatentTesterMixin, PipelineKarrasSchedulerTesterMixin, PipelineTesterMixin, unittest.TestCase
+):
     pipeline_class = StableUnCLIPPipeline
     params = TEXT_TO_IMAGE_PARAMS
     batch_params = TEXT_TO_IMAGE_BATCH_PARAMS
     image_params = TEXT_TO_IMAGE_IMAGE_PARAMS
+    image_latents_params = TEXT_TO_IMAGE_IMAGE_PARAMS
 
     # TODO(will) Expected attn_bias.stride(1) == 0 to be true, but got false
     test_xformers_attention = False
@@ -161,7 +168,7 @@ class StableUnCLIPPipelineFastTests(PipelineLatentTesterMixin, PipelineTesterMix
             "generator": generator,
             "num_inference_steps": 2,
             "prior_num_inference_steps": 2,
-            "output_type": "numpy",
+            "output_type": "np",
         }
         return inputs
 
@@ -175,14 +182,18 @@ class StableUnCLIPPipelineFastTests(PipelineLatentTesterMixin, PipelineTesterMix
     # Overriding PipelineTesterMixin::test_inference_batch_single_identical
     # because UnCLIP undeterminism requires a looser check.
     def test_inference_batch_single_identical(self):
-        test_max_difference = torch_device in ["cpu", "mps"]
-
-        self._test_inference_batch_single_identical(test_max_difference=test_max_difference)
+        self._test_inference_batch_single_identical(expected_max_diff=1e-3)
 
 
-@slow
+@nightly
 @require_torch_gpu
 class StableUnCLIPPipelineIntegrationTests(unittest.TestCase):
+    def setUp(self):
+        # clean up the VRAM before each test
+        super().setUp()
+        gc.collect()
+        torch.cuda.empty_cache()
+
     def tearDown(self):
         # clean up the VRAM after each test
         super().tearDown()
@@ -195,7 +206,6 @@ class StableUnCLIPPipelineIntegrationTests(unittest.TestCase):
         )
 
         pipe = StableUnCLIPPipeline.from_pretrained("fusing/stable-unclip-2-1-l", torch_dtype=torch.float16)
-        pipe.to(torch_device)
         pipe.set_progress_bar_config(disable=None)
         # stable unclip will oom when integration tests are run on a V100,
         # so turn on memory savings
@@ -217,7 +227,6 @@ class StableUnCLIPPipelineIntegrationTests(unittest.TestCase):
         torch.cuda.reset_peak_memory_stats()
 
         pipe = StableUnCLIPPipeline.from_pretrained("fusing/stable-unclip-2-1-l", torch_dtype=torch.float16)
-        pipe = pipe.to(torch_device)
         pipe.set_progress_bar_config(disable=None)
         pipe.enable_attention_slicing()
         pipe.enable_sequential_cpu_offload()

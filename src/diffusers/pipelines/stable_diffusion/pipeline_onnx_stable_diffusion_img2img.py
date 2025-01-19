@@ -1,4 +1,4 @@
-# Copyright 2023 The HuggingFace Team. All rights reserved.
+# Copyright 2024 The HuggingFace Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@ import inspect
 from typing import Callable, List, Optional, Union
 
 import numpy as np
-import PIL
+import PIL.Image
 import torch
 from transformers import CLIPImageProcessor, CLIPTokenizer
 
@@ -33,6 +33,8 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_img2img.preprocess with 8->64
 def preprocess(image):
+    deprecation_message = "The preprocess method is deprecated and will be removed in diffusers 1.0.0. Please use VaeImageProcessor.preprocess(...) instead"
+    deprecate("preprocess", "1.0.0", deprecation_message, standard_warn=False)
     if isinstance(image, torch.Tensor):
         return image
     elif isinstance(image, PIL.Image.Image):
@@ -76,10 +78,12 @@ class OnnxStableDiffusionImg2ImgPipeline(DiffusionPipeline):
             [`DDIMScheduler`], [`LMSDiscreteScheduler`], or [`PNDMScheduler`].
         safety_checker ([`StableDiffusionSafetyChecker`]):
             Classification module that estimates whether generated images could be considered offensive or harmful.
-            Please, refer to the [model card](https://huggingface.co/runwayml/stable-diffusion-v1-5) for details.
+            Please, refer to the [model card](https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5) for
+            details.
         feature_extractor ([`CLIPImageProcessor`]):
             Model that extracts features from generated images to be used as inputs for the `safety_checker`.
     """
+
     vae_encoder: OnnxRuntimeModel
     vae_decoder: OnnxRuntimeModel
     text_encoder: OnnxRuntimeModel
@@ -90,6 +94,7 @@ class OnnxStableDiffusionImg2ImgPipeline(DiffusionPipeline):
     feature_extractor: CLIPImageProcessor
 
     _optional_components = ["safety_checker", "feature_extractor"]
+    _is_onnx = True
 
     def __init__(
         self,
@@ -105,7 +110,7 @@ class OnnxStableDiffusionImg2ImgPipeline(DiffusionPipeline):
     ):
         super().__init__()
 
-        if hasattr(scheduler.config, "steps_offset") and scheduler.config.steps_offset != 1:
+        if scheduler is not None and getattr(scheduler.config, "steps_offset", 1) != 1:
             deprecation_message = (
                 f"The configuration file of this scheduler: {scheduler} is outdated. `steps_offset`"
                 f" should be set to 1 instead of {scheduler.config.steps_offset}. Please make sure "
@@ -119,7 +124,7 @@ class OnnxStableDiffusionImg2ImgPipeline(DiffusionPipeline):
             new_config["steps_offset"] = 1
             scheduler._internal_dict = FrozenDict(new_config)
 
-        if hasattr(scheduler.config, "clip_sample") and scheduler.config.clip_sample is True:
+        if scheduler is not None and getattr(scheduler.config, "clip_sample", False) is True:
             deprecation_message = (
                 f"The configuration file of this scheduler: {scheduler} has not set the configuration `clip_sample`."
                 " `clip_sample` should be set to False in the configuration file. Please make sure to update the"
@@ -507,7 +512,8 @@ class OnnxStableDiffusionImg2ImgPipeline(DiffusionPipeline):
 
             # call the callback, if provided
             if callback is not None and i % callback_steps == 0:
-                callback(i, t, latents)
+                step_idx = i // getattr(self.scheduler, "order", 1)
+                callback(step_idx, t, latents)
 
         latents = 1 / 0.18215 * latents
         # image = self.vae_decoder(latent_sample=latents)[0]
