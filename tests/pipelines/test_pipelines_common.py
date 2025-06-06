@@ -1111,14 +1111,14 @@ class PipelineTesterMixin:
     def setUp(self):
         # clean up the VRAM before each test
         super().setUp()
-        torch._dynamo.reset()
+        torch.compiler.reset()
         gc.collect()
         backend_empty_cache(torch_device)
 
     def tearDown(self):
         # clean up the VRAM after each test in case of CUDA runtime errors
         super().tearDown()
-        torch._dynamo.reset()
+        torch.compiler.reset()
         gc.collect()
         backend_empty_cache(torch_device)
 
@@ -1485,8 +1485,8 @@ class PipelineTesterMixin:
         model_devices = [component.device.type for component in components.values() if hasattr(component, "device")]
         self.assertTrue(all(device == torch_device for device in model_devices))
 
-        output_cuda = pipe(**self.get_dummy_inputs(torch_device))[0]
-        self.assertTrue(np.isnan(to_np(output_cuda)).sum() == 0)
+        output_device = pipe(**self.get_dummy_inputs(torch_device))[0]
+        self.assertTrue(np.isnan(to_np(output_device)).sum() == 0)
 
     def test_to_dtype(self):
         components = self.get_dummy_components()
@@ -1677,11 +1677,11 @@ class PipelineTesterMixin:
 
         pipe.set_progress_bar_config(disable=None)
 
-        pipe.enable_model_cpu_offload(device=torch_device)
+        pipe.enable_model_cpu_offload()
         inputs = self.get_dummy_inputs(generator_device)
         output_with_offload = pipe(**inputs)[0]
 
-        pipe.enable_model_cpu_offload(device=torch_device)
+        pipe.enable_model_cpu_offload()
         inputs = self.get_dummy_inputs(generator_device)
         output_with_offload_twice = pipe(**inputs)[0]
 
@@ -2096,11 +2096,11 @@ class PipelineTesterMixin:
         with torch.no_grad():
             encoded_prompt_outputs = pipe_with_just_text_encoder.encode_prompt(**encode_prompt_inputs)
 
-        # Programatically determine the reutrn names of `encode_prompt.`
-        ast_vistor = ReturnNameVisitor()
-        encode_prompt_tree = ast_vistor.get_ast_tree(cls=self.pipeline_class)
-        ast_vistor.visit(encode_prompt_tree)
-        prompt_embed_kwargs = ast_vistor.return_names
+        # Programmatically determine the return names of `encode_prompt.`
+        ast_visitor = ReturnNameVisitor()
+        encode_prompt_tree = ast_visitor.get_ast_tree(cls=self.pipeline_class)
+        ast_visitor.visit(encode_prompt_tree)
+        prompt_embed_kwargs = ast_visitor.return_names
         prompt_embeds_kwargs = dict(zip(prompt_embed_kwargs, encoded_prompt_outputs))
 
         # Pack the outputs of `encode_prompt`.
@@ -2226,7 +2226,7 @@ class PipelineTesterMixin:
 
         def enable_group_offload_on_component(pipe, group_offloading_kwargs):
             # We intentionally don't test VAE's here. This is because some tests enable tiling on the VAE. If
-            # tiling is enabled and a forward pass is run, when cuda streams are used, the execution order of
+            # tiling is enabled and a forward pass is run, when accelerator streams are used, the execution order of
             # the layers is not traced correctly. This causes errors. For apply group offloading to VAE, a
             # warmup forward pass (even with dummy small inputs) is recommended.
             for component_name in [
@@ -2291,7 +2291,6 @@ class PipelineTesterMixin:
             self.skipTest("No dummy components defined.")
 
         pipe = self.pipeline_class(**components)
-
         specified_key = next(iter(components.keys()))
 
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdirname:
